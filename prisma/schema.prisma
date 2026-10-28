@@ -1,0 +1,356 @@
+// ApexDrive — modelo de datos v1 (Fase 1). Ver docs/MASTER_PLAN.md §4.
+// Enforcement: unicidades e índices aquí; CHECKs de rango en migration.sql (DB);
+// validación de negocio en Zod (features/*/schema.ts); autorización en servidor.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ---------- Enums ----------
+
+enum Role {
+  USER
+  SELLER
+  ADMIN
+}
+
+enum UserStatus {
+  ACTIVE
+  BLOCKED
+}
+
+enum ListingStatus {
+  DRAFT
+  PENDING
+  PUBLISHED
+  SOLD
+  REJECTED
+  ARCHIVED
+}
+
+enum FuelType {
+  PETROL
+  DIESEL
+  HYBRID
+  ELECTRIC
+  CNG
+}
+
+enum Transmission {
+  MANUAL
+  AUTOMATIC
+  CVT
+}
+
+enum BodyType {
+  SEDAN
+  SUV
+  COUPE
+  HATCHBACK
+  PICKUP
+  SPORT
+  CONVERTIBLE
+  VAN
+}
+
+enum Condition {
+  NEW
+  USED
+  CERTIFIED
+}
+
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+enum ReportReason {
+  SPAM
+  FRAUD
+  WRONG_INFO
+  DUPLICATE
+  OTHER
+}
+
+// ---------- Identidad (compatible Auth.js v5, se activa en Fase 2) ----------
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  passwordHash  String?
+  role          Role      @default(USER)
+  status        UserStatus @default(ACTIVE)
+  emailVerified DateTime?
+  // Se incrementa al cambiar contraseña o bloquear: invalida JWTs vigentes.
+  tokenVersion  Int        @default(0)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  profile         Profile?
+  seller          Seller?
+  favorites       Favorite[]
+  comparisons     Comparison[]
+  reports         Report[]         @relation("Reporter")
+  adminActions    AdminAction[]
+  contactMessages ContactMessage[]
+  resetTokens     PasswordResetToken[]
+  accounts        Account[]
+  sessions        Session[]
+}
+
+model Profile {
+  id          String   @id @default(cuid())
+  userId      String   @unique
+  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  displayName String
+  phone       String?
+  avatarUrl   String?
+  city        String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model Seller {
+  id         String   @id @default(cuid())
+  userId     String   @unique
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tradeName  String?
+  verified   Boolean  @default(false)
+  ratingAvg  Float?
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  listings   Listing[]
+}
+
+// Tablas estándar del adaptador Auth.js/Prisma (sin uso hasta Fase 2).
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+// Recuperación de contraseña: se guarda SHA-256, nunca el token en claro.
+// Un solo uso (usedAt) + expiración corta. Limpieza de expirados por job (Fase 9).
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  @@index([userId])
+}
+
+// ---------- Catálogo curado (solo ADMIN escribe) ----------
+
+model Brand {
+  id        String     @id @default(cuid())
+  slug      String     @unique
+  name      String     @unique
+  logoUrl   String?
+  createdAt DateTime   @default(now())
+  models    CarModel[]
+  listings  Listing[]
+}
+
+model CarModel {
+  id        String   @id @default(cuid())
+  brandId   String
+  brand     Brand    @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  slug      String
+  name      String
+  createdAt DateTime @default(now())
+  listings  Listing[]
+
+  @@unique([brandId, slug])
+}
+
+// ---------- Publicaciones ----------
+
+model Listing {
+  id            String        @id @default(cuid())
+  slug          String        @unique
+  sellerId      String
+  seller        Seller        @relation(fields: [sellerId], references: [id], onDelete: Restrict)
+  brandId       String
+  brand         Brand         @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  carModelId    String
+  carModel      CarModel      @relation(fields: [carModelId], references: [id], onDelete: Restrict)
+  title         String
+  version       String?
+  year          Int
+  priceMXN      Int?
+  mileageKm     Int?
+  fuel          FuelType?
+  transmission  Transmission?
+  bodyType      BodyType?
+  condition     Condition
+  engine        String?
+  powerHp       Int?
+  torqueNm      Int?
+  exteriorColor String?
+  interiorColor String?
+  city          String?
+  description   String?
+  // Características libres (equipamiento). Paso 3 del wizard; array nativo PG.
+  features      String[]      @default([])
+  status        ListingStatus @default(DRAFT)
+  featuredUntil DateTime?
+  publishedAt   DateTime?
+  viewCount     Int           @default(0)
+  isSeed        Boolean       @default(false)
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+
+  images          VehicleImage[]
+  favorites       Favorite[]
+  comparisonItems ComparisonItem[]
+  contactMessages ContactMessage[]
+  reports         Report[]
+
+  @@index([status, publishedAt(sort: Desc)])
+  @@index([brandId])
+  @@index([priceMXN])
+  @@index([year])
+  @@index([sellerId, status])
+  // Compuestos para los filtros combinados más selectivos (análisis en Fase 3):
+  // marca+precio y carrocería+combustible siempre parten de status=PUBLISHED.
+  @@index([status, brandId, priceMXN], map: "Listing_status_brand_price_idx")
+  @@index([status, bodyType, fuel], map: "Listing_status_body_fuel_idx")
+}
+
+model VehicleImage {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  r2Key     String
+  width     Int?
+  height    Int?
+  position  Int      @default(0)
+  isPrimary Boolean  @default(false)
+  blurhash  String?
+  createdAt DateTime @default(now())
+
+  @@unique([listingId, position])
+  @@index([listingId])
+}
+
+// ---------- Interacción ----------
+
+model Favorite {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([userId, listingId])
+  @@index([userId])
+}
+
+model Comparison {
+  id        String           @id @default(cuid())
+  userId    String
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  name      String           @default("Mi comparativa")
+  createdAt DateTime         @default(now())
+  updatedAt DateTime         @updatedAt
+  items     ComparisonItem[]
+
+  @@index([userId])
+}
+
+model ComparisonItem {
+  id           String     @id @default(cuid())
+  comparisonId String
+  comparison   Comparison @relation(fields: [comparisonId], references: [id], onDelete: Cascade)
+  listingId    String
+  listing      Listing    @relation(fields: [listingId], references: [id], onDelete: Cascade)
+
+  @@unique([comparisonId, listingId])
+}
+
+model ContactMessage {
+  id        String   @id @default(cuid())
+  listingId String
+  listing   Listing  @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  fromUserId String?
+  fromUser  User?    @relation(fields: [fromUserId], references: [id], onDelete: SetNull)
+  name      String
+  contact   String
+  message   String
+  readAt    DateTime?
+  createdAt DateTime @default(now())
+
+  @@index([listingId, createdAt(sort: Desc)])
+}
+
+// ---------- Moderación y auditoría ----------
+
+model Report {
+  id         String       @id @default(cuid())
+  reporterId String?
+  reporter   User?        @relation("Reporter", fields: [reporterId], references: [id], onDelete: SetNull)
+  listingId  String
+  listing    Listing      @relation(fields: [listingId], references: [id], onDelete: Cascade)
+  reason     ReportReason
+  detail     String?
+  status     ReportStatus @default(OPEN)
+  createdAt  DateTime     @default(now())
+
+  @@index([status, createdAt(sort: Desc)])
+  // Dedupe de OPEN por usuario+listing vía índice parcial en migración 0005
+  // (Prisma no expresa WHERE en @@index).
+}
+
+// Auditoría append-only: sin updatedAt; el código NUNCA hace update/delete aquí.
+model AdminAction {
+  id         String   @id @default(cuid())
+  adminId    String
+  admin      User     @relation(fields: [adminId], references: [id], onDelete: Restrict)
+  targetType String
+  targetId   String
+  action     String
+  reason     String?
+  createdAt  DateTime @default(now())
+
+  @@index([targetType, targetId])
+  @@index([adminId, createdAt(sort: Desc)])
+}

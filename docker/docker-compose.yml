@@ -1,0 +1,67 @@
+# ApexDrive LOCAL con Docker: app + PostgreSQL 16. NO usar tal cual en producción
+# (credenciales de ejemplo, sin backups ni TLS). Ver docs/DEPLOYMENT.md.
+# Uso:
+#   docker compose -f docker/docker-compose.yml up -d db
+#   docker compose -f docker/docker-compose.yml run --rm migrate
+#   docker compose -f docker/docker-compose.yml up -d app
+# Solo desarrollo (perfil seed): datos de prueba
+#   docker compose -f docker/docker-compose.yml --profile seed run --rm seed
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: apex
+      POSTGRES_PASSWORD: apex
+      POSTGRES_DB: apexdrive
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U apex -d apexdrive"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  migrate:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: deps
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://apex:apex@db:5432/apexdrive?schema=public
+    # Solo migraciones. El seed va en el servicio `seed` (perfil dev).
+    entrypoint: ["sh", "-c", "npx prisma migrate deploy"]
+
+  # Perfil dev únicamente: NUNCA en producción (inyecta datos ficticios).
+  seed:
+    profiles: ["seed"]
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+      target: deps
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://apex:apex@db:5432/apexdrive?schema=public
+    entrypoint: ["sh", "-c", "npx tsx prisma/seed.ts"]
+
+  app:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://apex:apex@db:5432/apexdrive?schema=public
+      NEXT_PUBLIC_APP_URL: http://localhost:3000
+    ports:
+      - "3000:3000"
+
+volumes:
+  pgdata:

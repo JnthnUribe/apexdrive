@@ -1,0 +1,12 @@
+# Nunca hornear al contexto: node_modules, build, git ni secretos.
+node_modules
+.next
+out
+build
+coverage
+.git
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+public/uploads

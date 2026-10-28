@@ -12,6 +12,8 @@
 
 # testing
 /coverage
+/test-results/
+/playwright-report/
 
 # next.js
 /.next/
@@ -39,3 +41,28 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Track only the sanitized environment template
+!.env.example
+
+# Credentials and database exports
+*.key
+*.p12
+*.pfx
+*.dump
+*.backup
+.neon
+.neon/
+
+# Local uploads, caches and editor state
+/public/uploads/
+/.turbo/
+/.netlify/
+/.idea/
+/.vscode/
+Thumbs.db
+Desktop.ini
+*.log
+*.tmp
+*.swp
+/blob-report/

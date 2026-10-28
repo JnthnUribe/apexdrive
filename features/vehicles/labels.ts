@@ -1,0 +1,22 @@
+/** Presentation labels only; persisted values and URLs retain canonical enums. */
+export const VEHICLE_LABELS: Record<string, string> = {
+  PETROL: "Gasolina",
+  DIESEL: "Diésel",
+  HYBRID: "Híbrido",
+  ELECTRIC: "Eléctrico",
+  CNG: "Gas natural",
+  MANUAL: "Manual",
+  AUTOMATIC: "Automática",
+  CVT: "CVT",
+  SEDAN: "Sedán",
+  SUV: "SUV",
+  COUPE: "Coupé",
+  HATCHBACK: "Hatchback",
+  PICKUP: "Pickup",
+  SPORT: "Deportivo",
+  CONVERTIBLE: "Convertible",
+  VAN: "Van",
+  NEW: "Nuevo",
+  USED: "Seminuevo",
+  CERTIFIED: "Certificado",
+};
